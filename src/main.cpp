@@ -29,46 +29,7 @@ const int length_ch =1;
 const int height_pin = 13;//z方向は360サーボ
 const int hand_pin = 14;
 
-class MotorDrive{
-public:
-  int dirpin;
-  int motorpwm;
-  int pwmch;
-
-  MotorDrive(int pin1,int pin2,int ch){
-    dirpin=pin1;
-    motorpwm=pin2;
-    pwmch=ch;
-  }
-
-  void setup() {
-    pinMode(dirpin, OUTPUT);
-    ledcSetup(pwmch, 12800, 8);
-    ledcAttachPin(motorpwm, pwmch);
-  }
-
-  void drive(int val){
-    val = constrain(val,-255,255);
-    if(val<0){
-      digitalWrite(dirpin,HIGH);
-      ledcWrite(pwmch,-val);
-    }
-    else if(val>0){
-      digitalWrite(dirpin,LOW);
-      ledcWrite(pwmch,val);
-    }
-    else{
-      digitalWrite(dirpin,LOW);
-      ledcWrite(pwmch,0);
-    }
-  }
-};
-
-MotorDrive theta_M{theta_pin,theta_pwm,theta_ch};
-MotorDrive length_M{length_pin,length_pwm,length_ch};
-
 //send data with serial
-
 struct __attribute__((packed)) DeltaData{
   //controller input
   float leftX,leftY,leftRO,rightX,rightY,rightRO;
@@ -132,6 +93,29 @@ int loopcount = 0;
 double lastRawAngle = 0.0;
 bool isfirstread = true;
 
+struct OutputState{
+  double target_theta;
+  double target_length_angle;
+  double target_length;
+  double target_X;
+  double target_Y;
+};
+
+InputState getControllerInput(const DeltaData& data){
+  InputState input;
+
+  input.x1 = (data.Left != 0);
+  input.x2 = (data.Right != 0);
+
+  input.y1 = (data.Triangle != 0);
+  input.y2 = (data.Cross != 0);
+
+  input.z1 = (data.Circle != 0);
+  input.z2 = (data.Rectanlge != 0);
+
+  return input;
+}
+
 CurrentState getCurrentState(){
   CurrentState state;
   double thetaRaw = as5600[theta_as]->getRawAngle();
@@ -161,14 +145,6 @@ CurrentState getCurrentState(){
   return state;
 }
 
-struct OutputState{
-  double target_theta;
-  double target_length_angle;
-  double target_length;
-  double target_X;
-  double target_Y;
-};
-
 OutputState setTarget(double x, double y){
   OutputState output;
   output.target_X = x;
@@ -177,21 +153,6 @@ OutputState setTarget(double x, double y){
   output.target_theta = std::atan2(output.target_Y,output.target_X)*180.0/PI;
   output.target_length_angle = (output.target_length - offset_Length)/pinion_circle*360.0;
   return output;
-}
-
-InputState getControllerInput(const DeltaData& data){
-  InputState input;
-
-  input.x1 = (data.Left != 0);
-  input.x2 = (data.Right != 0);
-
-  input.y1 = (data.Triangle != 0);
-  input.y2 = (data.Cross != 0);
-
-  input.z1 = (data.Circle != 0);
-  input.z2 = (data.Rectanlge != 0);
-
-  return input;
 }
 
 OutputState UpdateTarget(const DeltaData& data, OutputState output){
@@ -205,6 +166,44 @@ OutputState UpdateTarget(const DeltaData& data, OutputState output){
 
   return setTarget(x,y);
 }
+
+class MotorDrive{
+public:
+  int dirpin;
+  int motorpwm;
+  int pwmch;
+
+  MotorDrive(int pin1,int pin2,int ch){
+    dirpin=pin1;
+    motorpwm=pin2;
+    pwmch=ch;
+  }
+
+  void setup() {
+    pinMode(dirpin, OUTPUT);
+    ledcSetup(pwmch, 12800, 8);
+    ledcAttachPin(motorpwm, pwmch);
+  }
+
+  void drive(int val){
+    val = constrain(val,-255,255);
+    if(val<0){
+      digitalWrite(dirpin,HIGH);
+      ledcWrite(pwmch,-val);
+    }
+    else if(val>0){
+      digitalWrite(dirpin,LOW);
+      ledcWrite(pwmch,val);
+    }
+    else{
+      digitalWrite(dirpin,LOW);
+      ledcWrite(pwmch,0);
+    }
+  }
+};
+
+MotorDrive theta_M{theta_pin,theta_pwm,theta_ch};
+MotorDrive length_M{length_pin,length_pwm,length_ch};
 
 void setup(){
   Serial.begin(115200);
