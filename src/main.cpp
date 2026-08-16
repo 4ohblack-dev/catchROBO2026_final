@@ -4,7 +4,6 @@
 #include<Adafruit_AS5600.h>
 #include<ESP32Servo.h>
 
-
 #define SDA2_pin 25
 #define SCL2_pin 32
 #define offset_Length 100.0
@@ -82,6 +81,38 @@ void sendPacket(const DeltaData& data) {
   
   Serial.write(buffer, PACKET_SIZE);
   Serial.flush();
+}
+
+bool receivePacket(DeltaData& data){
+  static uint8_t buffer[PACKET_SIZE];
+  static size_t index = 0;
+
+  while(Serial.available() > 0){
+    uint8_t received = Serial.read();
+    if(index == 0){
+      if(received == HEADER){
+        buffer[index++] = received;
+      }
+      continue;
+    }
+
+    buffer[index++] = received;
+
+    if(index >= PACKET_SIZE){
+      // CRCを計算
+      uint8_t calculatedCRC = calculateCRC(&buffer[1], DATA_SIZE);
+      uint8_t receivedCRC = buffer[PACKET_SIZE - 1];
+      // CRCチェック
+      if(calculatedCRC == receivedCRC){
+        memcpy(&data,&buffer[1],DATA_SIZE);
+        index = 0;
+        return true;
+      }
+      // CRCエラー
+      index = 0;
+    }
+  }
+  return false;
 }
 
 //data struct
