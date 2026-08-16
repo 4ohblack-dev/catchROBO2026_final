@@ -68,9 +68,6 @@ MotorDrive theta_M{theta_pin,theta_pwm,theta_ch};
 MotorDrive length_M{length_pin,length_pwm,length_ch};
 
 //send data with serial
-const uint8_t HEADER = 0xAA;
-const size_t DATA_SIZE = sizeof(DeltaData);
-const size_t PACKET_SIZE = 1 + DATA_SIZE +1;
 
 struct __attribute__((packed)) DeltaData{
   //controller input
@@ -80,6 +77,10 @@ struct __attribute__((packed)) DeltaData{
 
   int State;//bool
 };
+
+const uint8_t HEADER = 0xAA;
+const size_t DATA_SIZE = sizeof(DeltaData);
+const size_t PACKET_SIZE = 1 + DATA_SIZE +1;
 
 uint8_t calculateCRC(const uint8_t *data,size_t len){
   uint8_t crc = 0x00;
@@ -178,6 +179,32 @@ OutputState setTarget(double x, double y){
   return output;
 }
 
+InputState getControllerInput(const DeltaData& data){
+  InputState input;
+
+  input.x1 = (data.Left != 0);
+  input.x2 = (data.Right != 0);
+
+  input.y1 = (data.Triangle != 0);
+  input.y2 = (data.Cross != 0);
+
+  input.z1 = (data.Circle != 0);
+  input.z2 = (data.Rectanlge != 0);
+
+  return input;
+}
+
+OutputState UpdateTarget(const DeltaData& data, OutputState output){
+  InputState input = getControllerInput(data);
+  double x = output.target_X;
+  double y = output.target_Y;
+  if(input.x2) x += 20;
+  if(input.x1) x -= 20;
+  if(input.y1) y += 20;
+  if(input.y2) y -= 20;
+
+  return setTarget(x,y);
+}
 
 void setup(){
   Serial.begin(115200);
