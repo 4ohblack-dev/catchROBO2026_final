@@ -29,6 +29,14 @@ const int length_ch =1;
 const int height_pin = 13;//z方向は360サーボ
 const int hand_pin = 14;
 
+const double THETA_TOLERANCE = 2.0;
+const double LENGTH_TOLERANCE = 2.0;
+
+const double THETA_KP = 2.0;
+const double LENGTH_KP = 2.0;
+
+const int MAX_MOTOR_PWM = 100;
+
 //send data with serial
 struct __attribute__((packed)) DeltaData{
   //controller input
@@ -81,6 +89,14 @@ struct InputState{
   bool z2;
 };
 
+struct AngleState{
+  double lastRawAngle;
+  long loopcount;
+  bool initialized;
+};
+AngleState theta_angle = {0.0,0,false};
+AngleState length_angle = {0.0,0,false};
+
 struct CurrentState{
   double current_theta;
   double current_length_angle;
@@ -88,11 +104,6 @@ struct CurrentState{
   double current_X;
   double current_Y;
 };
-
-int loopcount = 0;
-double lastRawAngle = 0.0;
-bool isfirstread = true;
-
 struct OutputState{
   double target_theta;
   double target_length_angle;
@@ -116,29 +127,43 @@ InputState getControllerInput(const DeltaData& data){
   return input;
 }
 
-CurrentState getCurrentState(){
-  CurrentState state;
-  double thetaRaw = as5600[theta_as]->getRawAngle();
-  double current_theta = thetaRaw*360.0/4096.0;
+double getContinuousAngle(Adafruit_AS5600* sensor,AngleState& state){
+   double raw = sensor->getRawAngle();
 
-  double lengthRaw = as5600[length_as]->getRawAngle();
+  if(!state.initialized){
+    state.lastRawAngle = raw;
+    state.initialized = true;
+  }
+  else{
+    double diff = raw - state.lastRawAngle;
 
-  if(isfirstread){
-    lastRawAngle = lengthRaw;
-    isfirstread = false;
-  } else {
-    double diff = lengthRaw - lastRawAngle;
-    if(diff < -2048)loopcount++;
-    else if(diff > 2048)loopcount--;
-    lastRawAngle = lengthRaw;
+    // 4095 → 0 の境界を通過
+    if(diff < -2048){
+      state.loopcount++;
+    }
+    // 0 → 4095 の境界を通過
+    else if(diff > 2048){
+      state.loopcount--;
+    }
+
+    state.lastRawAngle = raw;
   }
 
-  double totalRaw = loopcount * 4096.0 + lengthRaw;
-  float totalDegree = totalRaw*360.0/4096.0;
+  double totalRaw =
+      state.loopcount * 4096.0 + raw;
+
+  return totalRaw * 360.0 / 4096.0;
+}
+
+
+CurrentState getCurrentState(){
+  CurrentState state;
+  double current_theta = getContinuousAngle(as5600[theta_as],theta_angle);
+  double current_length_angle = getContinuousAngle(as5600[length_as],length_angle);
 
   state.current_theta = current_theta;
-  state.current_length = offset_Length + totalDegree*pinion_circle/360.0;
-  state.current_length_angle = totalDegree;
+  state.current_length_angle = current_length_angle;
+  state.current_length = offset_Length + current_length_angle*pinion_circle/360.0;
   state.current_X=state.current_length*std::cos(state.current_theta*PI/180.0);
   state.current_Y=state.current_length*std::sin(state.current_theta*PI/180.0);
 
@@ -155,7 +180,7 @@ OutputState setTarget(double x, double y){
   return output;
 }
 
-OutputState UpdateTarget(const DeltaData& data, OutputState output){
+OutputState updateTarget(const DeltaData& data, OutputState output){
   InputState input = getControllerInput(data);
   double x = output.target_X;
   double y = output.target_Y;
@@ -204,6 +229,38 @@ public:
 
 MotorDrive theta_M{theta_pin,theta_pwm,theta_ch};
 MotorDrive length_M{length_pin,length_pwm,length_ch};
+
+double angleDifference(double target, double current){
+  double diff = target - current;
+
+  while(diff > 180.0){
+    diff -= 360.0;
+  }
+
+  while(diff < -180.0){
+    diff += 360.0;
+  }
+
+  return diff;
+}
+
+void controlMotor(const CurrentState& state, const OutputState& target){
+  double theta_error = angleDifference(target.target_theta,state.current_theta);
+  int theta_pwm = 0;
+  if(std::abs(theta_error) > THETA_TOLERANCE){
+    theta_pwm = (int)(THETA_KP * theta_error);
+    theta_pwm = constrain(theta_pwm,-MAX_MOTOR_PWM,MAX_MOTOR_PWM);
+  }
+  theta_M.drive(theta_pwm);
+
+  double length_error = target.target_length_angle - state.current_length_angle;
+  int length_pwm;
+  if(std::abs(length_error) > LENGTH_TOLERANCE){
+    length_pwm = (int)(LENGTH_KP*length_error);
+    length_pwm = constrain(length_pwm,-MAX_MOTOR_PWM,MAX_MOTOR_PWM);
+  }
+  length_M.drive(length_pwm);
+}
 
 void setup(){
   Serial.begin(115200);
