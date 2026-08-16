@@ -2,6 +2,7 @@
 #include<Wire.h>
 #include<cmath>
 #include<Adafruit_AS5600.h>
+#include<ESP32Servo.h>
 
 
 #define SDA2_pin 25
@@ -28,6 +29,10 @@ const int length_ch =1;
 
 const int height_pin = 13;//z方向は360サーボ
 const int hand_pin = 14;
+Servo Z_servo,Hand_servo;
+const int Z_STOP = 90;
+const int Z_UP = 120;
+const int Z_DOWN = 60;
 
 const double THETA_TOLERANCE = 2.0;
 const double LENGTH_TOLERANCE = 2.0;
@@ -111,6 +116,8 @@ struct OutputState{
   double target_X;
   double target_Y;
 };
+
+OutputState target;
 
 InputState getControllerInput(const DeltaData& data){
   InputState input;
@@ -244,7 +251,7 @@ double angleDifference(double target, double current){
   return diff;
 }
 
-void controlMotor(const CurrentState& state, const OutputState& target){
+void control_XY(const CurrentState& state, const OutputState& target){
   double theta_error = angleDifference(target.target_theta,state.current_theta);
   int theta_pwm = 0;
   if(std::abs(theta_error) > THETA_TOLERANCE){
@@ -254,12 +261,23 @@ void controlMotor(const CurrentState& state, const OutputState& target){
   theta_M.drive(theta_pwm);
 
   double length_error = target.target_length_angle - state.current_length_angle;
-  int length_pwm;
+  int length_pwm = 0;
   if(std::abs(length_error) > LENGTH_TOLERANCE){
     length_pwm = (int)(LENGTH_KP*length_error);
     length_pwm = constrain(length_pwm,-MAX_MOTOR_PWM,MAX_MOTOR_PWM);
   }
   length_M.drive(length_pwm);
+}
+
+void control_Hand(const DeltaData& data){
+  InputState input = getControllerInput(data);
+  if(input.z1){
+    Z_servo.write(Z_UP);
+  } else if(input.z2){
+    Z_servo.write(Z_DOWN);
+  } else{
+    Z_servo.write(Z_STOP);
+  }
 }
 
 void setup(){
@@ -268,10 +286,28 @@ void setup(){
   I2C_2.begin(SDA2_pin,SCL2_pin,400000);
   theta_M.setup();
   length_M.setup();
+  Z_servo.attach(height_pin);
+  Hand_servo.attach(hand_pin);
 
   theta_M.drive(0);
   length_M.drive(0);
+  Z_servo.write(90);
+  Hand_servo.write(90);
+
+  delay(100);
+
+  CurrentState current = getCurrentState();
+  target = setTarget(current.current_X,current.current_Y);
 }
+
+
+/*
+updateTarget
+↓
+getCurrentState
+↓
+controlMotor
+*/
 void loop(){
 
 }
