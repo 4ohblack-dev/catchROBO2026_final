@@ -15,6 +15,12 @@ const int height_pin = 13;//z方向は360サーボ
 const int hand_pin = 14;
 const int hand_rotate_pin = 25;
 
+int handAngle = 90;
+int rotateHandAngle = 90;
+
+const int HAND_STEP = 1;
+const int ROTATE_HAND_STEP = 1;
+
 class MotorDrive{
 public:
   int dirpin;
@@ -54,20 +60,34 @@ MotorDrive theta_M{theta_pin,theta_pwm,theta_ch};
 MotorDrive length_M{length_pin,length_pwm,length_ch};
 Servo height_M, hand_servo,rotate_hand_servo;
 
-struct __attribute__((packed)) DeltaData{
-  float leftX,leftY,leftRO,rightX,rightY,rightRO;
-  int Left,Right;
-  int Cross,Circle,Triangle,Rectanlge;
-  //float deltaX,deltaY,Angle;
-  int State;
+struct __attribute__((packed)) DeltaData {
+  float leftX;
+  float leftY;
+  float rightX;
+  float rightY;
+
+  uint8_t L_button;
+  uint8_t R_button;
+
+  uint8_t button_left;
+  uint8_t button_right;
+  uint8_t button_up;
+  uint8_t button_down;
+
+  float deltaX;
+  float deltaY;
+  float angle;
+
+  uint8_t state;
 };
 
 struct InputState{
   int theta;
-  int R;
-  int Z;
+  float R;
+  float Z;
   int RotateHand;
   int GrabHand;
+  bool state;
 };
 
 const uint8_t HEADER = 0xAA;
@@ -129,6 +149,87 @@ bool receivePacket(DeltaData& data){
   return false;
 }
 
+InputState getInput(DeltaData& data){
+  InputState input = {0, 0, 0, 0, 0, false};  
+  if(receivePacket(data)){
+    //theta
+    if(data.L_button && !data.R_button){
+      input.theta = 1;
+    } else if(data.R_button && !data.L_button){
+      input.theta = -1;
+    } else{
+      input.theta = 0;
+    }
+    //r
+    input.R = data.leftY;
+    //z
+    input.Z = data.rightY;
+    //grab
+    if(data.button_up && !data.button_down){
+      input.GrabHand = 1;
+    } else if(data.button_down && !data.button_up){
+      input.GrabHand = -1;
+    } else{
+      input.GrabHand = 0;
+    }
+    //rotate hand
+    if(data.button_left && !data.button_right){
+      input.RotateHand = 1;
+    } else if(data.button_right && !data.button_left){
+      input.RotateHand = -1;
+    } else{
+      input.RotateHand = 0;
+    }
+    //state
+    input.state = data.state;
+  }
+  return input;
+}
+
+void thetaDrive(InputState input){
+  if(input.theta == 1){
+    theta_M.drive(25);
+  } else if(input.theta == -1){
+    theta_M.drive(-25);
+  } else{
+    theta_M.drive(0);
+  }
+}
+
+void lengthDrive(InputState input){//pwmは要変更
+  const float DEAD_ZONE = 0.2;
+  if(input.R > DEAD_ZONE){
+    length_M.drive(25);
+  } else if(input.R < -DEAD_ZONE){
+    length_M.drive(-25);
+  } else{
+    length_M.drive(0);
+  }
+}
+
+void Z_Drive(InputState input){
+  int z_value = (int)(90 + 60*input.Z);
+  if(input.Z == 0){
+    height_M.write(90);
+  } else if(z_value > 95 || z_value < 85){
+    height_M.write(z_value);
+  }
+}
+
+void handDrive(InputState input){
+  if(input.GrabHand != 0){
+    handAngle += input.GrabHand*HAND_STEP;
+    handAngle = constrain(handAngle,0,180);
+    hand_servo.write(handAngle);
+  }
+
+  if(input.RotateHand != 0){
+    rotateHandAngle += input.RotateHand*ROTATE_HAND_STEP;
+    rotateHandAngle = constrain(rotateHandAngle,0,180);
+    rotate_hand_servo.write(rotateHandAngle);
+  }
+}
+
 void setup(){
   Serial.begin(115200);
   Serial.setTimeout(10);
@@ -149,3 +250,17 @@ void setup(){
 void loop(){
 
 }
+
+/*
+void loop(){
+
+  DeltaData data;
+
+  InputState input = getInput(data);
+
+  thetaDrive(input);
+  lengthDrive(input);
+  Z_Drive(input);
+  handDrive(input);
+}
+*/
