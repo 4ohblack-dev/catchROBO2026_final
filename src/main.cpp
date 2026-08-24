@@ -1,5 +1,4 @@
 #include<Arduino.h>
-#include<Wire.h>
 #include<cmath>
 #include<ESP32Servo.h>
 
@@ -208,12 +207,15 @@ void lengthDrive(InputState input){//pwmは要変更
 }
 
 void Z_Drive(InputState input){
-  int z_value = (int)(90 + 60*input.Z);
-  if(input.Z == 0){
+  const float DEAD_ZONE = 0.08;
+  if(abs(input.Z) < DEAD_ZONE){
     height_M.write(90);
-  } else if(z_value > 95 || z_value < 85){
-    height_M.write(z_value);
+    return;
   }
+  int z_value = (int)(90 + 60 * input.Z);
+  z_value = constrain(z_value, 0, 180);
+
+  height_M.write(z_value);
 }
 
 void handDrive(InputState input){
@@ -249,11 +251,6 @@ void setup(){
 
 void loop(){
 
-}
-
-/*
-void loop(){
-
   DeltaData data;
 
   InputState input = getInput(data);
@@ -263,4 +260,3 @@ void loop(){
   Z_Drive(input);
   handDrive(input);
 }
-*/
