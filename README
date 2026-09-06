@@ -1,0 +1,35 @@
+<ピン番号>
+const int theta_pin = 18;
+const int theta_pwm = 19;
+const int theta_ch = 6;
+
+const int length_pin = 32;
+const int length_pwm = 33;
+const int length_ch = 7;
+
+const int height_pin = 13;
+const int hand_pin = 14;
+const int hand_rotate_pin = 26;
+
+<回路系注意事項>
+ESP載ってる基盤のスイッチは触らない
+
+
+<ラズパイのセットアップ>
+PCのパスワード12695
+側面のタイプCに電源
+コントローラ、LANが刺さってることを確認
+password yohku
+
+中央のショートカット
+左→ラズパイのコード
+右→ESPのコード
+
+move_test.pyを実行
+
+書き込みとかでESP抜き差ししたときは実行しなおして
+
+<操縦>
+左ジョイスティック→x:θ、y:R
+左の十字キー→x:ハンドの首振り,y:ハンドつかむ
+右のジョイスティック→y:Z

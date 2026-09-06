@@ -20,7 +20,7 @@ int rotateHandAngle = 90;
 const int SERVO_MIN_ANGLE = 10;
 const int SERVO_MAX_ANGLE = 170;
 
-const int HAND_STEP = 1;
+const int HAND_STEP = 2;
 const int ROTATE_HAND_STEP = 1;
 
 const unsigned long SERVO_UPDATE_INTERVAL = 20;
@@ -38,12 +38,11 @@ int stableRotateInput = 0;
 int previousRotateRawInput = 0;
 unsigned long rotateInputChangeTime = 0;
 
-const unsigned long COMM_TIMEOUT = 200;
+const unsigned long COMM_TIMEOUT = 1000;
 
 class MotorDrive {
 
 public:
-
     int dirpin;
     int motorpwm;
     int pwmch;
@@ -88,14 +87,14 @@ struct __attribute__((packed)) DeltaData {
     float leftY;
     float rightY;
 
-    uint8_t L_button;
-    uint8_t R_button;
-
     uint8_t button_left;
     uint8_t button_right;
-
     uint8_t button_up;
     uint8_t button_down;
+
+    uint8_t button_circle;
+    uint8_t button_cross;
+    uint8_t button_triangle;
 };
 
 struct InputState {
@@ -107,6 +106,10 @@ struct InputState {
 
     int RotateHand;
     int GrabHand;
+
+    int releaseObject;
+    int getObject;
+    int liftup;
 };
 
 const uint8_t HEADER = 0xAA;
@@ -166,20 +169,37 @@ InputState getInput(DeltaData& data) {
     input.R = data.leftY;
     input.Z = data.rightY;
 
-    if ( data.button_up && !data.button_down) {
+    if ( data.button_up && !data.button_down && !data.button_left && !data.button_right && !data.button_circle && !data.button_cross && !data.button_triangle) {
         input.GrabHand = 1;
-    } else if (data.button_down && !data.button_up) {
+    } else if (data.button_down && !data.button_up && !data.button_left && !data.button_right && !data.button_circle && !data.button_cross && !data.button_triangle) {
         input.GrabHand = -1;
     } else {
         input.GrabHand = 0;
     }
 
-    if (data.button_left && !data.button_right) {
+    if (data.button_left && !data.button_right && !data.button_up && !data.button_down && !data.button_circle && !data.button_cross && !data.button_triangle) {
         input.RotateHand = 1;
-    } else if (data.button_right && !data.button_left) {
+    } else if (data.button_right && !data.button_left && !data.button_up && !data.button_down && !data.button_circle && !data.button_cross && !data.button_triangle) {
         input.RotateHand = -1;
     } else {
         input.RotateHand = 0;
+    }
+
+    if(data.button_circle && !data.button_left && !data.button_right && !data.button_up && !data.button_down && !data.button_cross && !data.button_triangle){
+        input.releaseObject = 1;
+    } else{
+        input.releaseObject = 0;
+    }
+    if(data.button_cross && !data.button_circle && !data.button_left && !data.button_right && !data.button_up && !data.button_down && !data.button_triangle){
+        input.getObject = 1;
+    } else{
+        input.getObject = 0;
+    }
+
+    if(data.button_triangle && !data.button_circle && !data.button_left && !data.button_right && !data.button_up && !data.button_down && !data.button_cross){
+        input.liftup = 1;
+    } else{
+        input.liftup = 0;
     }
     return input;
 }
@@ -206,13 +226,45 @@ void lengthDrive(InputState input) {
     }
 }
 
+const unsigned long liftDuration = 2000;
+const int lift_value = 150;
+unsigned long liftStartTime = 0;
+bool previousLiftButton = false;
+bool lifting = false;
+
 void Z_Drive(InputState input) {
+    unsigned long now = millis();
+
+    bool liftPressed = input.liftup;
+    if(liftPressed && !previousLiftButton && !lifting){
+        lifting = true;
+        liftStartTime = now;
+    }
+    previousLiftButton = liftPressed;
+
+    if(lifting){
+        if((now - liftStartTime) < liftDuration){
+            height_M.write(lift_value);
+            return;
+        }
+        lifting = false;
+        height_M.write(90);
+        return;
+    }
+
+
     const float HAND_DEAD_ZONE = 0.08;
     if (abs(input.Z) < HAND_DEAD_ZONE) {
         height_M.write(90);
         return;
     }
-    int z_value =(int)(90 + 60 * input.Z);
+    int z_value = 0;
+    
+    if(input.Z < 0){
+        z_value =(int)(90 + 60 * input.Z);
+    } else {
+        z_value = (int)(90 + 80*input.Z);
+    }
     z_value =constrain(z_value,0,180);
     height_M.write(z_value);
 }
@@ -246,16 +298,29 @@ int debounceRotateInput(int rawInput) {
 void handDrive(InputState input) {
 
     unsigned long now = millis();
-
-    int grabInput =debounceGrabInput(input.GrabHand);
-    if (grabInput != 0 && (now - lastHandUpdate) >= SERVO_UPDATE_INTERVAL) {
-        int newAngle = handAngle + grabInput * HAND_STEP;
-        newAngle = constrain(newAngle,SERVO_MIN_ANGLE,SERVO_MAX_ANGLE );
-        if (newAngle != handAngle) {
-            handAngle = newAngle;
+    if(input.getObject){
+        const int getAngle = 30;
+        if(handAngle != getAngle){
+            handAngle = getAngle;
             hand_servo.write(handAngle);
         }
-        lastHandUpdate = now;
+    } else if(input.releaseObject){
+        const int releaseAngle = 120;
+        if(handAngle != releaseAngle){
+            handAngle = releaseAngle;
+            hand_servo.write(handAngle);
+        }
+    } else{
+        int grabInput = debounceGrabInput(input.GrabHand);
+        if (grabInput != 0 && (now - lastHandUpdate) >= SERVO_UPDATE_INTERVAL) {
+            int newAngle = handAngle + grabInput * HAND_STEP;
+            newAngle = constrain(newAngle,SERVO_MIN_ANGLE,SERVO_MAX_ANGLE );
+            if (newAngle != handAngle) {
+                handAngle = newAngle;
+                hand_servo.write(handAngle);
+            }
+            lastHandUpdate = now;
+        }
     }
     int rotateInput = debounceRotateInput(input.RotateHand);
     if (rotateInput != 0 && (now - lastRotateHandUpdate) >=SERVO_UPDATE_INTERVAL) {
@@ -267,7 +332,7 @@ void handDrive(InputState input) {
         }
         lastRotateHandUpdate = now;
     }
-}
+} 
 
 void stopMotors(){
     theta_M.drive(0);   
